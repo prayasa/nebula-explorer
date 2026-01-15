@@ -1,11 +1,10 @@
 "use client";
-import { useState, Suspense, useRef, useEffect } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, OrbitControls, Stars } from "@react-three/drei";
-import ArModel from "../components/ArModel"; // Pastikan ini menggunakan versi revisi (Turn 4)
+import ArModel from "../components/ArModel"; 
 import SpaceDebris from "../components/SpaceDebris";
 import SolarSystem from "../components/SolarSystem";
-import Joystick from "../components/Joystick"; // Jangan lupa buat file Joystick.tsx dulu
 import Image from "next/image"; 
 
 export default function Home() {
@@ -14,53 +13,80 @@ export default function Home() {
   const [isDriving, setIsDriving] = useState(false);
   const [isHologram, setIsHologram] = useState(false);
   
-  // Ref untuk komunikasi performa tinggi antara UI Joystick dan 3D Scene
-  const joystickRef = useRef({ x: 0, y: 0 });
+  // State Audio
+  const [isMuted, setIsMuted] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
-  // State deteksi Mobile untuk penyesuaian kontrol & grafik
+  // State deteksi Mobile
   const [isMobile, setIsMobile] = useState(false);
   const [dpr, setDpr] = useState(1.5);
 
   const isUFOSelected = selectedModel.includes("model1");
-  const isCockpitMode = isDriving && isUFOSelected;
+  // Cockpit mode hanya aktif jika Driving TRUE DAN bukan Mobile
+  const isCockpitMode = isDriving && isUFOSelected && !isMobile;
 
   useEffect(() => {
-    // Cek device saat mount
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      setDpr(mobile ? 1 : 1.5); // Turunkan resolusi render di HP
+      setDpr(mobile ? 1 : 1.5); 
+      
+      // Safety check: Jika resize ke mobile saat driving, paksa keluar cockpit
+      if (mobile && isDriving) {
+        setIsDriving(false);
+        if(document.pointerLockElement) document.exitPointerLock();
+      }
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
-  }, []);
+  }, [isDriving]);
 
+  // Fungsi Play Audio & SFX
   const playSfx = () => {
     const audio = new Audio("/assets/click.mp3");
     audio.volume = 0.3;
     audio.play().catch(() => {});
   };
 
+  const handleInteraction = () => {
+    if (!isPlaced) {
+      setIsPlaced(true);
+      // Coba play BGM saat interaksi pertama (deploy)
+      if (audioRef.current) {
+        audioRef.current.volume = 0.4;
+        audioRef.current.play().catch((e) => console.log("Audio autoplay blocked:", e));
+      }
+    }
+  };
+
+  const toggleMute = () => {
+    if (audioRef.current) {
+        audioRef.current.muted = !audioRef.current.muted;
+        setIsMuted(!isMuted);
+    }
+  };
+
   return (
     <main className="h-screen w-screen bg-neutral-950 relative overflow-hidden font-mono text-white selection:bg-cyan-500/30">
       
+      {/* BGM PLAYER (Hidden) */}
+      <audio ref={audioRef} src="/assets/bgm.mp3" loop />
+
       {/* KANVAS 3D */}
-      <div id="canvas-container" className="absolute inset-0 z-0" onClick={() => !isPlaced && setIsPlaced(true)}>
+      <div id="canvas-container" className="absolute inset-0 z-0" onClick={handleInteraction}>
         <Canvas 
             dpr={dpr} 
-            camera={{ position: [0, 5, 15], fov: 75, far: 2000 }} // Far dikurangi untuk performa
-            gl={{ antialias: !isMobile, powerPreference: "high-performance" }} // Matikan antialias di HP
-            shadows={!isMobile} // Matikan shadow di HP jika masih berat
+            camera={{ position: [0, 5, 15], fov: 75, far: 2000 }} 
+            gl={{ antialias: !isMobile, powerPreference: "high-performance" }} 
+            shadows={!isMobile} 
         >
-          {/* Environment: Bintang dikurangi agar ringan */}
           <Stars radius={200} depth={100} count={isMobile ? 1000 : 5000} factor={4} saturation={0} fade speed={isDriving ? 3 : 0.5} />
           
           <SpaceDebris count={isMobile ? 200 : 600} />
           
           <SolarSystem />
 
-          {/* Lighting */}
           <ambientLight intensity={0.3} color="#4444ff" />
           <directionalLight position={[50, 50, 50]} intensity={1.5} color="#ffddaa" />
           <hemisphereLight groundColor="#000000" skyColor="#222244" intensity={0.4} />
@@ -71,21 +97,20 @@ export default function Home() {
                 isPlaced={isPlaced} 
                 isDriving={isDriving} 
                 isHologram={isHologram}
-                joystickRef={joystickRef} // Pass ref joystick ke AR Model
+                // Joystick Ref dihapus karena mobile tidak nyetir
             />
           </Suspense>
 
           <Environment preset="night" blur={0.6} background={false} />
           
-          {/* LOGIKA KONTROL KAMERA (PENTING):
-              1. Saat TIDAK Driving: Orbit aktif (bisa putar-putar model).
-              2. Saat Driving di HP: Orbit aktif (bisa tengok kanan kiri), tapi Zoom & Pan dimatikan.
-              3. Saat Driving di Desktop: Orbit MATI (diganti PointerLock di ArModel).
+          {/* LOGIKA KAMERA:
+              - Mobile: SELALU OrbitControls (Bisa putar/zoom bebas, tidak pernah dikunci pointer)
+              - Desktop: OrbitControls mati saat Driving (diganti PointerLock di ArModel)
           */}
-          {(!isDriving || (isDriving && isMobile)) && (
+          {(!isDriving || isMobile) && (
             <OrbitControls 
-                enableZoom={!isDriving} 
-                enablePan={!isDriving} 
+                enableZoom={true} 
+                enablePan={true} 
                 maxPolarAngle={Math.PI / 1.5} 
                 minDistance={5} 
                 maxDistance={100}
@@ -95,7 +120,7 @@ export default function Home() {
         </Canvas>
       </div>
 
-      {/* --- OVERLAY KOKPIT (Visual) --- */}
+      {/* --- OVERLAY KOKPIT (Hanya Desktop saat Driving) --- */}
       {isCockpitMode && (
         <div className="absolute inset-0 z-30 pointer-events-none flex flex-col justify-end">
           <div className="relative w-full h-[60vh]"> 
@@ -108,7 +133,6 @@ export default function Home() {
                 className="opacity-90"
               />
           </div>
-          {/* Crosshair */}
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 border border-cyan-500/50 rounded-full flex items-center justify-center">
              <div className="w-1 h-1 bg-cyan-400 rounded-full shadow-[0_0_10px_cyan]"></div>
           </div>
@@ -120,28 +144,31 @@ export default function Home() {
         <div>
           <h1 className="text-3xl font-bold tracking-tighter text-cyan-400 drop-shadow-[0_0_10px_rgba(0,255,255,0.5)]">NEBULA EXPLORER</h1>
           <p className="text-xs text-cyan-200/70 mt-1 font-semibold tracking-widest">
-            STATUS: <span className={isDriving ? "text-red-400 animate-pulse" : "text-green-400"}>{isDriving ? "MANUAL PILOT ENGAGED" : "AUTOPILOT ORBIT"}</span>
+            SYSTEM: <span className="text-white">{isMobile ? "MOBILE ORBITAL VIEW" : "DESKTOP COMMAND"}</span>
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">
+             STATUS: <span className={isDriving ? "text-red-400 animate-pulse" : "text-green-400"}>
+                {isDriving ? "MANUAL PILOT ENGAGED" : "AUTOPILOT ORBIT"}
+             </span>
           </p>
         </div>
         
-        {/* Tombol Exit (Universal) */}
-        {isDriving && (
-          <button 
-            onClick={() => { setIsDriving(false); if(document.pointerLockElement) document.exitPointerLock(); playSfx(); }}
-            className="pointer-events-auto bg-red-600/80 hover:bg-red-500 border border-red-400 text-white px-6 py-2 rounded-full font-bold text-sm shadow-[0_0_15px_rgba(255,0,0,0.5)] transition-all"
-          >
-            EXIT COCKPIT [ESC]
-          </button>
-        )}
-      </div>
+        <div className="pointer-events-auto flex gap-3">
+             {/* Tombol Mute BGM */}
+            <button onClick={toggleMute} className="bg-black/50 border border-cyan-800 text-cyan-400 px-3 py-1 text-xs rounded hover:bg-cyan-900/50">
+                {isMuted ? "UNMUTE BGM" : "MUTE BGM"}
+            </button>
 
-      {/* --- UI JOYSTICK (Hanya Mobile saat Driving) --- */}
-      {isDriving && isMobile && (
-        <div className="absolute bottom-10 left-10 z-50 pointer-events-auto flex flex-col items-center animate-in fade-in zoom-in duration-300">
-            <Joystick onMove={(data) => { joystickRef.current = data; }} />
-            <span className="text-[10px] text-cyan-400 mt-2 font-bold tracking-widest animate-pulse">STEERING</span>
+            {isDriving && (
+            <button 
+                onClick={() => { setIsDriving(false); if(document.pointerLockElement) document.exitPointerLock(); playSfx(); }}
+                className="bg-red-600/80 hover:bg-red-500 border border-red-400 text-white px-6 py-2 rounded-full font-bold text-sm shadow-[0_0_15px_rgba(255,0,0,0.5)] transition-all"
+            >
+                EXIT COCKPIT [ESC]
+            </button>
+            )}
         </div>
-      )}
+      </div>
 
       {/* --- INSTRUKSI DESKTOP (Hanya Desktop saat Driving) --- */}
       {isDriving && !isMobile && (
@@ -180,20 +207,26 @@ export default function Home() {
                 className={`flex-1 py-3 rounded-lg border transition-all font-bold tracking-wider ${isUFOSelected ? "bg-cyan-600 text-white border-cyan-400 shadow-[0_0_15px_rgba(0,255,255,0.4)]" : "bg-transparent text-cyan-400 border-cyan-800 hover:bg-cyan-900/50"}`}>
                 UFO-V1
               </button>
-              {/* Tambahkan tombol model lain jika perlu */}
             </div>
           </div>
           
           <div className="bg-black/80 backdrop-blur-xl border border-cyan-900/50 rounded-2xl p-4 flex-[1.5] shadow-[0_0_30px_rgba(0,100,255,0.2)] flex flex-col justify-center gap-4">
-            <button
-              onClick={() => { setIsDriving(true); playSfx(); }}
-              className={`w-full py-4 rounded-xl font-extrabold tracking-[0.2em] transition-all duration-300 transform active:scale-95 shadow-lg flex items-center justify-center gap-3 border-2
-              ${isDriving 
-                ? "bg-red-600/90 hover:bg-red-500 border-red-400 text-white" 
-                : "bg-cyan-600/90 hover:bg-cyan-500 border-cyan-400 text-white shadow-[0_0_20px_rgba(0,255,255,0.3)] animate-pulse"}`}
-            >
-              ENGAGE COCKPIT VIEW
-            </button>
+            
+            {/* LOGIC TOMBOL BERBEDA UNTUK MOBILE vs DESKTOP */}
+            {!isMobile ? (
+                <button
+                onClick={() => { setIsDriving(true); playSfx(); }}
+                className={`w-full py-4 rounded-xl font-extrabold tracking-[0.2em] transition-all duration-300 transform active:scale-95 shadow-lg flex items-center justify-center gap-3 border-2
+                bg-cyan-600/90 hover:bg-cyan-500 border-cyan-400 text-white shadow-[0_0_20px_rgba(0,255,255,0.3)] animate-pulse`}
+                >
+                ENGAGE COCKPIT VIEW
+                </button>
+            ) : (
+                <div className="w-full py-4 rounded-xl border border-gray-700 bg-gray-900/50 text-gray-400 flex flex-col items-center justify-center text-center">
+                    <span className="text-xs font-bold tracking-widest">ORBITAL VIEWER MODE ACTIVE</span>
+                    <span className="text-[10px] opacity-60 mt-1">Cockpit Pilot available on Desktop only</span>
+                </div>
+            )}
 
             <div className={`flex items-center justify-between px-2 transition-opacity ${isUFOSelected ? "opacity-100" : "opacity-40 pointer-events-none"}`}>
               <span className="text-xs font-bold text-cyan-300">HOLOGRAM CLOAK {isUFOSelected ? "" : "(UFO ONLY)"}</span>
