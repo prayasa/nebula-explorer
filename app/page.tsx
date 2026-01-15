@@ -32,8 +32,9 @@ export default function Home() {
           {/* Environment */}
           <Stars radius={200} depth={100} count={8000} factor={6} saturation={0} fade speed={isDriving ? 5 : 0.5} />
           
-          {/* Objek Angkasa */}
-          <SpaceDebris count={600} speed={isDriving ? 3.0 : 0.2} />
+          {/* Objek Angkasa (FIX: Hapus prop 'speed' karena sudah tidak dipakai di SpaceDebris.tsx) */}
+          <SpaceDebris count={600} />
+          
           <SolarSystem />
 
           {/* Lighting */}
@@ -119,7 +120,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* DASHBOARD BAWAH (REVISI: HAPUS TOMBOL ASTEROID) */}
+      {/* DASHBOARD BAWAH */}
       {isPlaced && !isCockpitMode && (
         <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 w-[95%] max-w-4xl flex flex-col md:flex-row gap-4 z-40">
           <div className="bg-black/80 backdrop-blur-xl border border-cyan-900/50 rounded-2xl p-4 flex-1 shadow-[0_0_30px_rgba(0,100,255,0.2)]">
@@ -129,7 +130,6 @@ export default function Home() {
                 className={`flex-1 py-3 rounded-lg border transition-all font-bold tracking-wider bg-cyan-600 text-white border-cyan-400 shadow-[0_0_15px_rgba(0,255,255,0.4)]`}>
                 UFO-V1 (ACTIVE)
               </button>
-              {/* Tombol Asteroid telah dihapus */}
             </div>
           </div>
           <div className="bg-black/80 backdrop-blur-xl border border-cyan-900/50 rounded-2xl p-4 flex-[1.5] shadow-[0_0_30px_rgba(0,100,255,0.2)] flex flex-col justify-center gap-4">
