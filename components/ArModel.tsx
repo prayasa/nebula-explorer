@@ -10,9 +10,11 @@ interface ArModelProps {
   isPlaced: boolean;
   isDriving: boolean;
   isHologram: boolean;
+  // TAMBAHAN: Terima Ref Joystick dari page.tsx
+  joystickRef?: React.MutableRefObject<{ x: number; y: number }>;
 }
 
-export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArModelProps) {
+export default function ArModel({ url, isPlaced, isDriving, isHologram, joystickRef }: ArModelProps) {
   const obj = useLoader(OBJLoader, url) as THREE.Group;
   
   // meshRef = Wadah Utama (Mengontrol Posisi Dunia)
@@ -45,7 +47,7 @@ export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArMode
     };
   }, []);
 
-  // Setup Model
+  // Setup Model (Logic Asli Anda)
   useLayoutEffect(() => {
     if (obj && meshRef.current) {
       obj.rotation.set(0,0,0);
@@ -65,8 +67,6 @@ export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArMode
       box.getCenter(center);
       obj.position.sub(center);
       
-      // ROTASI VISUAL: Tidurkan UFO (-90 derajat X) HANYA di visualRef
-      // meshRef biarkan normal agar kalkulasi arah mudah
       if (isUFO && visualRef.current) {
          visualRef.current.rotation.x = -Math.PI / 2; 
       }
@@ -102,59 +102,71 @@ export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArMode
     });
 
     if (isDriving && isPlaced) {
-      const moveSpeed = keys.w ? 50 : (keys.s ? 0 : 0); // Kecepatan Maju
-      const strafeSpeed = 20;
+      // --- LOGIKA INPUT HYBRID (KEYBOARD + JOYSTICK) ---
+      
+      // Ambil nilai Joystick (jika ada, default 0)
+      const joyX = joystickRef?.current?.x || 0; // Kanan/Kiri (-1 s/d 1)
+      const joyY = joystickRef?.current?.y || 0; // Maju/Mundur (-1 s/d 1)
 
-      // --- LOGIKA GERAK BERBASIS VEKTOR KAMERA (PASTI BENAR) ---
+      // Gabungkan input: Jika tekan W atau Joystick didorong ke atas
+      // Gunakan Math.max/min agar input tidak tembus batas 1.0
+      
+      // Input Maju/Mundur (Forward/Backward)
+      // Keyboard W=1, S=-1. Joystick Y=1 (Maju), Y=-1 (Mundur)
+      let inputForward = (keys.w ? 1 : 0) - (keys.s ? 1 : 0);
+      if (Math.abs(joyY) > 0.1) inputForward += joyY; // Deadzone 0.1
+      inputForward = Math.max(-1, Math.min(1, inputForward)); // Clamp
+
+      // Input Kiri/Kanan (Strafe)
+      let inputStrafe = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+      if (Math.abs(joyX) > 0.1) inputStrafe += joyX;
+      inputStrafe = Math.max(-1, Math.min(1, inputStrafe));
+
+      // Kecepatan
+      const maxSpeed = 50;
+      const strafeMaxSpeed = 20;
+
+      // --- LOGIKA GERAK BERBASIS VEKTOR KAMERA ---
       
       // 1. Dapatkan arah hadap kamera (Forward Vector)
       const forward = new THREE.Vector3();
       camera.getWorldDirection(forward);
-      forward.y = 0; // Kunci gerakan agar tidak naik/turun otomatis (opsional, biar seperti pesawat datar dulu)
+      forward.y = 0; 
       forward.normalize();
 
       // 2. Dapatkan arah samping (Right Vector)
       const right = new THREE.Vector3();
       right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-      // 3. Terapkan Gerakan ke Posisi Pesawat (meshRef)
-      if (moveSpeed > 0) {
-        meshRef.current.position.add(forward.multiplyScalar(moveSpeed * delta));
+      // 3. Terapkan Gerakan (Support Maju & Mundur Sekarang)
+      // Jika inputForward positif (Maju), negatif (Mundur)
+      if (Math.abs(inputForward) > 0.01) {
+        meshRef.current.position.add(forward.multiplyScalar(inputForward * maxSpeed * delta));
       }
-      if (keys.a) {
-        meshRef.current.position.add(right.multiplyScalar(-strafeSpeed * delta));
-      }
-      if (keys.d) {
-        meshRef.current.position.add(right.multiplyScalar(strafeSpeed * delta));
+      
+      if (Math.abs(inputStrafe) > 0.01) {
+        meshRef.current.position.add(right.multiplyScalar(inputStrafe * strafeMaxSpeed * delta));
       }
 
       // --- SINKRONISASI ROTASI PESAWAT ---
-      // Pesawat menghadap kemana kamera menghadap (Yaw only)
       const camRot = camera.rotation;
       meshRef.current.rotation.y = camRot.y;
 
-      // Efek Visual Banking (Miring saat belok)
+      // Efek Visual Banking (Miring saat belok) - Update agar responsif ke Joystick juga
       if (visualRef.current) {
-          const targetTilt = keys.a ? 0.6 : (keys.d ? -0.6 : 0);
+          // Target miring: Kanan (-), Kiri (+)
+          // inputStrafe positif = Kanan (D), jadi tilt harus negatif
+          const targetTilt = -inputStrafe * 0.6; 
           visualRef.current.rotation.z = THREE.MathUtils.lerp(visualRef.current.rotation.z, targetTilt, 0.1);
-          // Pastikan rotasi 'tidur' UFO tetap terjaga
+          
           visualRef.current.rotation.x = -Math.PI / 2; 
       }
 
       // --- KAMERA POV (DI DALAM KOKPIT) ---
       if (isUFO) {
-        // Tempelkan kamera persis di titik pivot pesawat (0,0,0)
-        // Karena pesawat sudah bergerak maju, kamera akan ikut maju.
-        // PointerLockControls menangani rotasi kamera (look), kita hanya menangani posisi.
-        
-        // Offset sedikit supaya pas di mata pilot (Naik dikit, Maju dikit)
-        // Gunakan posisi dunia pesawat + offset vektor rotasi
         const offset = new THREE.Vector3(0, 0.5, 0); 
         offset.applyAxisAngle(new THREE.Vector3(0,1,0), meshRef.current.rotation.y);
-        
         camera.position.copy(meshRef.current.position).add(offset);
-
-        // Sembunyikan visual pesawat saat driving agar tidak menghalangi pandangan
         if (visualRef.current) visualRef.current.visible = false;
       } 
       
@@ -165,7 +177,6 @@ export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArMode
       meshRef.current.position.y = Math.sin(t * 1) * 0.5;
       meshRef.current.rotation.y += 0.005; 
       
-      // Reset visual tilt
       if(visualRef.current) {
         visualRef.current.rotation.x = -Math.PI / 2;
         visualRef.current.rotation.z = 0;
@@ -177,22 +188,22 @@ export default function ArModel({ url, isPlaced, isDriving, isHologram }: ArMode
 
   return (
     <group>
-      {/* KONTROL KAMERA (FPS STYLE) */}
+      {/* NOTE UNTUK MOBILE: 
+        PointerLockControls tidak berjalan sempurna di Mobile (layar sentuh).
+        Idealnya di page.tsx, saat isDriving=true di Mobile, Anda aktifkan OrbitControls (tanpa zoom/pan)
+        agar user bisa geser layar untuk menengok (Camera Look), dan Joystick untuk jalan.
+      */}
       {isDriving && <PointerLockControls selector="#canvas-container" />}
       
-      {/* WADAH UTAMA (Gerak & Rotasi Arah) */}
       <group ref={meshRef}>
-        
-        {/* WADAH VISUAL (Model 3D + Efek Miring) */}
         <group ref={visualRef}>
            <primitive object={obj} scale={computedScale} />
         </group>
 
-        {/* Lampu Sorot */}
         {isDriving && (
             <spotLight 
                 position={[0, 0, 0]} 
-                target={meshRef.current} // Target ke wadah utama (selalu depan)
+                target={meshRef.current}
                 angle={0.6} 
                 penumbra={1} 
                 intensity={800} 
