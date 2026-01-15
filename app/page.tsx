@@ -13,9 +13,9 @@ export default function Home() {
   const [isDriving, setIsDriving] = useState(false);
   const [isHologram, setIsHologram] = useState(false);
   
-  // State Audio
+  // State Audio & Interaksi
   const [isMuted, setIsMuted] = useState(false);
-  const [hasInteracted, setHasInteracted] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false); 
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // State deteksi Mobile
@@ -23,14 +23,17 @@ export default function Home() {
   const [dpr, setDpr] = useState(1.5);
 
   const isUFOSelected = selectedModel.includes("model1");
+  // Cockpit mode hanya aktif jika Driving TRUE DAN bukan Mobile
   const isCockpitMode = isDriving && isUFOSelected && !isMobile;
 
   useEffect(() => {
-    // 1. Cek Mobile
+    // 1. Cek Ukuran Layar (Mobile/Desktop)
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       setDpr(mobile ? 1 : 1.5); 
+      
+      // Safety check: Jika resize ke mobile saat driving, paksa keluar cockpit
       if (mobile && isDriving) {
         setIsDriving(false);
         if(document.pointerLockElement) document.exitPointerLock();
@@ -39,42 +42,40 @@ export default function Home() {
     checkMobile();
     window.addEventListener("resize", checkMobile);
 
-    // 2. PAKSA LOAD AUDIO DI BACKGROUND (Fix Delay)
+    // 2. PRELOAD AUDIO (Trik atasi delay)
     if (audioRef.current) {
-        // Set volume rendah dulu agar tidak kaget kalau autoplay tembus
         audioRef.current.volume = 0.4;
-        audioRef.current.load();
+        audioRef.current.load(); // Paksa load file
     }
 
     return () => window.removeEventListener("resize", checkMobile);
-  }, [isDriving]); // Dependency array
+  }, [isDriving]);
 
+  // Fungsi Play Audio & SFX
   const playSfx = () => {
     const audio = new Audio("/assets/click.mp3");
     audio.volume = 0.3;
     audio.play().catch(() => {});
   };
 
+  // FUNGSI UTAMA: Jalan saat tombol "INITIALIZE SYSTEM" diklik
   const handleStartExperience = () => {
-    // Play Audio
+    // 1. Play Audio BGM
     if (audioRef.current) {
-        // Kita gunakan Promise untuk memastikan play
         const playPromise = audioRef.current.play();
-        
         if (playPromise !== undefined) {
-            playPromise
-            .then(() => {
-                console.log("Audio started immediately.");
-            })
-            .catch((error) => {
-                console.log("Playback prevented, trying again on next interaction.");
+            playPromise.then(() => {
+                console.log("Audio playing started.");
+            }).catch((error) => {
+                console.error("Autoplay prevented:", error);
             });
         }
     }
     
-    setHasInteracted(true);
-    setIsPlaced(true); 
+    // 2. Masuk ke Scene 3D
     playSfx();
+    setHasInteracted(true); 
+    setIsPlaced(true);      
   };
 
   const toggleMute = () => {
@@ -87,12 +88,12 @@ export default function Home() {
   return (
     <main className="h-screen w-screen bg-neutral-950 relative overflow-hidden font-mono text-white selection:bg-cyan-500/30">
       
-      {/* Tambahkan preload="auto" */}
+      {/* BGM PLAYER (preload="auto" penting agar tidak delay) */}
       <audio ref={audioRef} src="/assets/bgm.mp3" loop preload="auto" />
 
-      {/* --- START SCREEN --- */}
+      {/* --- START SCREEN OVERLAY --- */}
       {!hasInteracted && (
-        <div className="absolute inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4 transition-opacity duration-500">
+        <div className="absolute inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-4 transition-opacity duration-500">
            <h1 className="text-4xl md:text-6xl font-bold text-cyan-400 drop-shadow-[0_0_20px_rgba(0,255,255,0.6)] tracking-tighter mb-2 text-center">
               NEBULA EXPLORER
            </h1>
@@ -105,7 +106,7 @@ export default function Home() {
              <span className="absolute inset-0 w-full h-full bg-cyan-400 opacity-0 group-hover:opacity-20 animate-pulse rounded-lg"></span>
              Initialize System
            </button>
-           <p className="mt-6 text-gray-500 text-[10px] animate-pulse">HEADPHONES RECOMMENDED</p>
+           <p className="mt-6 text-gray-500 text-[10px] animate-pulse">AUDIO RECOMMENDED</p>
         </div>
       )}
 
@@ -118,7 +119,9 @@ export default function Home() {
             shadows={!isMobile} 
         >
           <Stars radius={200} depth={100} count={isMobile ? 1000 : 5000} factor={4} saturation={0} fade speed={isDriving ? 3 : 0.5} />
+          
           <SpaceDebris count={isMobile ? 200 : 600} />
+          
           <SolarSystem />
 
           <ambientLight intensity={0.3} color="#4444ff" />
@@ -141,8 +144,8 @@ export default function Home() {
                 enableZoom={true} 
                 enablePan={true} 
                 maxPolarAngle={Math.PI / 1.5} 
-                minDistance={5} 
-                maxDistance={100}
+                minDistance={2}    // REVISI: Bisa zoom in sampai dekat sekali
+                maxDistance={800}  // REVISI: Bisa zoom out jauh (wide shot)
                 rotateSpeed={0.5} 
             />
           )}
